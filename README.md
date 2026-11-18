@@ -5,6 +5,7 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Rendering](https://img.shields.io/badge/rendering-headless%20OpenGL%203.3-informational)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CodingYayaToure/oceantank/blob/main/examples/oceantank_colab.ipynb)
+[![Dashboard in Colab](https://img.shields.io/badge/Colab-HPC%20dashboard-F9AB00?logo=googlecolab&logoColor=white)](https://colab.research.google.com/github/CodingYayaToure/oceantank/blob/main/examples/oceantank_dashboard.ipynb)
 
 **A rectangular glass tank, filled with ocean water, crossed by a tropical cyclone, rendered in pure Python.**
 Deterministic, headless (no browser, no display, no GPU required) and cross-validated against the original three.js animation.
@@ -16,7 +17,7 @@ Deterministic, headless (no browser, no display, no GPU required) and cross-vali
 
 ## Contents
 
-[Overview](#overview) · [Quick start](#quick-start) · [The cycle](#the-cycle) · [Models](#mathematical-and-physical-models) · [Validation](#validation-against-the-html-animation) · [Notebook](#jupyter--google-colab) · [Limitations](#limitations) · [Development](#development) · [References](#references)
+[Overview](#overview) · [Quick start](#quick-start) · [The cycle](#the-cycle) · [Models](#mathematical-and-physical-models) · [Dashboard and HPC](#dashboard-and-hpc-tools) · [Validation](#validation-against-the-html-animation) · [Notebook](#jupyter--google-colab) · [Limitations](#limitations) · [Development](#development) · [References](#references)
 
 ## Overview
 
@@ -35,21 +36,25 @@ Deterministic, headless (no browser, no display, no GPU required) and cross-vali
 | Water surface | analytic height field: ambient sea, eye depression, spiral bands, radiating rings with wall reflections, wake | hand-built, analytic |
 | Cyclone intensity | sea-surface-temperature profile → intensity by relaxation along the track | phenomenological, tuned |
 | Surface tracers | modified Rankine vortex with inflow | analytic |
+| Energy-balance model (optional) | Emanuel-type intensity with sea-surface cooling, RK4, compared with the law above | reduced physical, calibrated |
 
 > **What this is not.** `oceantank` is a model-scale *visualisation*, not a numerical weather prediction code: it does not integrate
-> the primitive equations, and its units are tank units, not metres. The physical models it imitates qualitatively are documented,
-> with their status (implemented or not), in [`docs/MODELS.md`](docs/MODELS.md).
+> the primitive equations, and its units are tank units, not metres. The animation's law is phenomenological; the optional energy-balance model is
+> *reduced and calibrated, not measured*. Both are documented, with their status, in [`docs/MODELS.md`](docs/MODELS.md).
 
 ### Architecture
 
 ```mermaid
 flowchart LR
+    M["model + physics<br/>repo law, energy balance"] -->|"itab, zone"| T
     T["Timeline<br/>cyclone state, particles"] -->|"uniforms: uT, uC, uI, uR, uRot, uBurst, uDis"| S["Scene<br/>layers, draw order"]
     G["Tank, Camera<br/>geometry, matrices"] --> S
     H["GLSL shaders<br/>extracted verbatim from the HTML"] --> S
     S --> R["GLRenderer<br/>moderngl + EGL, MSAA 4x"]
     R --> C["compose.over<br/>page background"]
     C --> O["PNG / GIF / frames"]
+    M --> D["dashboard + hpc<br/>widgets, sweeps, scaling"]
+    D -->|"set_model, render_frames"| S
 ```
 
 ## Quick start
@@ -157,9 +162,39 @@ V(r)=V_{\max}\ I\ \Bigl(\frac{R_0}{r}\Bigr)^{0.85}e^{-(r-R_0)/11}
 
 **5. Camera and blending.** Standard perspective matrix, $C=\alpha_sC_s+(1-\alpha_s)C_d$ (normal) or $C=\alpha_sC_s+C_d$ (additive), 4× MSAA.
 
-**Reference models and where this package stops.** [`docs/MODELS.md`](docs/MODELS.md#5-physical-reference-models-context-not-implemented-in-this-package)
-lists the physical reference formulations (Bolton saturation, Emanuel energy balance and potential intensity, gradient-wind balance, axisymmetric shallow water)
-and states that they are **not** solved here. `Timeline(itab=...)` is the hook to drive the water, spiral and tracers from any physical intensity solver.
+**Reduced physics and where this package stops.** [`docs/MODELS.md`](docs/MODELS.md#5-energy-balance-intensity-model-reduced-implemented-and-other-reference-models)
+documents the implemented energy-balance model (Bolton saturation, enthalpy disequilibrium, potential intensity, cold-wake feedback, RK4) and states that gradient-wind balance and
+axisymmetric shallow water are **not** solved here. `Timeline(itab=...)` is the hook to drive the water, spiral and tracers from any intensity solver.
+
+## Dashboard and HPC tools
+
+`oceantank.dashboard` is an interactive dashboard (Jupyter / Colab) where the 3-D animation and six scientific panels move together: SST under the track and the cold wake,
+wind of the **repo law** versus the **energy balance**, intensification rate with the rapid-intensification threshold, radial wind profile, ensemble sensitivity to the warm-zone anomaly,
+and the wind-SST phase plane. Sliders change the ocean, the two models and the scenario (cold basin, hot anomaly, fast or slow mover, long or short warm zone, no cooling feedback);
+the storm enters the warm zone, intensifies, and leaves it, in every panel at once.
+
+```python
+from oceantank.dashboard import Dashboard
+Dashboard().show()          # in a notebook; needs: pip install "oceantank[dashboard]"
+```
+
+![Dashboard panels](docs/dashboard.png)
+
+HPC part (`oceantank.hpc`, results in [`docs/MODELS.md`](docs/MODELS.md#7-verification-ensembles-and-scaling)):
+
+| Tool | What it does |
+|---|---|
+| `hpc.sweep`, `hpc.sweep_physics` | parameter sweeps over a grid: vectorised over members, chunks spread over processes; identical for any number of workers |
+| `hpc.convergence`, `hpc.convergence_physics` | observed order of accuracy against a finer reference (Euler 1.03, RK4 2.6 on the coupled problem, 4 on the smooth one) |
+| `hpc.scaling`, `hpc.render_scaling` | strong scaling: speed-up, efficiency, Amdahl serial fraction, vectorisation gain |
+| `Viewer.render_frames(times, workers=N)`, `Viewer.gif(..., workers=N)` | parallel rendering, one single-threaded GL context per process; frames pixel-identical to serial |
+
+Measured on 2 vCPU: sweep of 200 000 members 1.72× faster on 2 processes (86 % efficiency), vectorisation about 1 500× faster than a Python loop, parallel rendering 1.19×
+(Mesa already uses both cores for one frame). These numbers come from `tools/benchmark.py`; they say nothing about larger machines.
+
+![HPC benchmarks](docs/hpc_benchmarks.png)
+
+Notebook: [`examples/oceantank_dashboard.ipynb`](examples/oceantank_dashboard.ipynb) (dashboard, verification, sweeps, scaling, parallel GIF).
 
 ## Validation against the HTML animation
 
@@ -196,28 +231,35 @@ camera angle) and a full-cycle GIF. In Colab, click the *Open in Colab* badge ab
 Verified: complete notebook execution with nbconvert on headless Linux. **Not verified**: Colab itself and the
 interactive sliders (they need a browser front end).
 
+[`examples/oceantank_dashboard.ipynb`](examples/oceantank_dashboard.ipynb) is the dashboard and HPC notebook (same install cell, *Dashboard in Colab* badge above). Verified by
+nbconvert execution; the widgets themselves (drag, play) are **not** verified here, they need a browser.
+
 ## Limitations
 
 - **Visualisation, not prediction**: the cyclone follows a tuned SST-to-intensity law, not the equations of motion (see [`docs/MODELS.md`](docs/MODELS.md)). Lengths are in tank units.
 - No frustum culling (three.js may skip an off-screen flank for some camera angles).
 - The HUD, labels and CSS background are not part of the WebGL canvas; `over()` reproduces the page's radial-gradient background.
-- `Timeline` uses the animation's simplified intensity model; to drive it from another source pass `itab=` (a table of 1601 values).
+- `Timeline` uses the animation's simplified intensity model by default; to drive it from another source pass `itab=` (a table of 1601 values), e.g. `physics.intensity_table()`.
+- The energy-balance model is reduced (no vertical structure, convection, shear or dry air) and calibrated, not measured: no operational or forecast claim.
 - Tested on Linux (Ubuntu, Mesa; Python 3.13 and 3.14; CI on 3.10, 3.12, 3.13). Windows and macOS are untested (moderngl supports them in principle).
 - The original HTML animation (French UI) is not included in this repository; the comparison tool needs a path to it.
 
 ## Development
 
 ```bash
-pip install -e ".[test]"
-pytest                                   # 14 tests, a few seconds
+pip install -e ".[test,dashboard]"
+pytest                                   # all tests (a few minutes with the parallel-rendering checks)
 OCEANTANK_HTML=/path/index.html OCEANTANK_THREE=/path/three.min.js pytest   # + browser comparison (needs playwright)
 node tools/extract_shaders.js /path/index.html src/oceantank/shaders         # re-extract the shaders
-python tools/make_notebook.py                                                # regenerate the notebook (needs nbformat)
+python tools/make_notebook.py                                                # regenerate the notebooks (needs nbformat)
+python tools/make_dashboard_notebook.py
+python tools/benchmark.py && python tools/make_figures.py                    # re-measure scaling, redraw the figures
 ```
 
 Project layout: `src/oceantank/` (`spec` tank dimensions, `geometry`, `camera`, `timeline` cyclone state and particles,
 `scene` layers and draw order, `render_gl` OpenGL renderer, `shaders` GLSL loading, `compose` background, `api` notebook
-`Viewer`, `cli`), `tests/`, `tools/`, `examples/`, `docs/`.
+`Viewer`, `cli`; `model` vectorised SST-intensity law, `physics` energy-balance model, `hpc` sweeps / convergence / scaling, `dashboard` widgets and panels),
+`tests/`, `tools/`, `examples/`, `docs/`.
 
 ## References
 

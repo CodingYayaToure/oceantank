@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oceantank"
-version = "0.1.2"
+version = "0.2.0"
 description = "Rectangular glass tank filled with ocean water: headless OpenGL rendering that reproduces an HTML/three.js animation"
 readme = "README.md"
 license = {text = "MIT"}
@@ -18,6 +18,7 @@ dependencies = ["numpy", "moderngl", "pillow"]
 
 [project.optional-dependencies]
 test = ["pytest"]
+dashboard = ["ipywidgets", "matplotlib"]
 
 [project.scripts]
 oceantank = "oceantank.cli:main"

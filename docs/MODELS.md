@@ -6,7 +6,7 @@ relates to the physics of tropical cyclones.
 > **Scope.** `oceantank` is a *deterministic, model-scale visualisation* of a cyclone crossing a glass tank. It is
 > **not** a numerical weather prediction code and it does not integrate the primitive equations. Its cyclone is driven by
 > a small **phenomenological** model (sea-surface temperature → intensity) whose structure follows tropical-cyclone
-> theory qualitatively. Section 5 lists the physical reference models and states which of them are *not* implemented here.
+> theory qualitatively. Section 5 documents the reduced energy-balance model that is implemented alongside it (`physics.py`) and the reference models that are not.
 > All lengths are in **tank units** (the tank is 30 × 8 × 3.2), not metres.
 
 | # | Layer | Nature | Code |
@@ -15,7 +15,8 @@ relates to the physics of tropical cyclones.
 | 2 | Water-surface height field and shading | analytic, hand-built | `shaders/surface.vert`, `surface.frag` |
 | 3 | Sea-surface temperature and intensity law | phenomenological, tuned | `timeline.py` |
 | 4 | Vortex wind field advecting the tracers | analytic (modified Rankine) | `timeline.py::step_tracers` |
-| 5 | Physical reference models | context only, **not implemented** | — |
+| 5 | Energy-balance intensity model with cold wake | reduced physical, calibrated | `physics.py` |
+| 6 | Ensembles, convergence, scaling | numerical | `model.py`, `hpc.py` |
 
 ---
 
@@ -220,18 +221,25 @@ a ← a + 0x6D2B79F5;  t ← imul(a ⊕ (a ≫ 15), 1 | a);  t ← (t + imul(t �
 Spray, bubble and steam particles are not integrated in Python: their seeds go to the GPU and the shaders evaluate their
 positions analytically from $t$.
 
-## 5. Physical reference models (context; not implemented in this package)
+## 5. Energy-balance intensity model (reduced, implemented) and other reference models
 
-For orientation, the physics that the phenomenological model above imitates **qualitatively** is the following. None of these
-equations is solved by `oceantank`; they are what a physically based intensity solver (see the `itab=` hook below) would provide.
+`oceantank.physics` integrates a **reduced Emanuel-type model** along the same SST track as the animation, so the two models can be compared
+side by side and either one can drive the 3-D scene (`Timeline(itab=...)`). It is *calibrated, not measured*, and it is **not** a hurricane
+forecast model: no vertical structure, no convection, no shear, no dry air.
 
-**Moist saturation (Bolton, 1980).** Saturation vapour pressure over water, $T$ in °C:
+**Moist saturation (Bolton, 1980).** Saturation vapour pressure over water, $T$ in °C (`physics.saturation_vapor_pressure`):
 ```math
 e_s(T)=6.112\ \exp\Bigl(\frac{17.67\ T}{T+243.5}\Bigr)\ \text{hPa}.
 ```
 
+**Enthalpy disequilibrium.** With $T_a=T_s-1$ K and relative humidity $RH=0.8$ in the surface air:
+```math
+k_0^{\ast}-k=c_p\ (T_s-T_a)+L_v\ \bigl(q_s^{\ast}(T_s)-RH\ q_s^{\ast}(T_a)\bigr),
+\qquad c_p=1005\ \mathrm{J/kg/K},\ \ L_v=2.5\times10^{6}\ \mathrm{J/kg}.
+```
+
 **Boundary-layer energy balance and potential intensity (reduced form after Emanuel, 1986).** Surface enthalpy flux feeds the vortex and surface
-drag dissipates it, with Carnot efficiency $\varepsilon=(T_s-T_o)/T_o$ between the sea surface and the outflow level:
+drag dissipates it, with Carnot efficiency $\varepsilon=(T_s-T_o)/T_o$ between the sea surface and the outflow level ($T_o=200$ K):
 
 ```math
 \frac{d}{dt}\Bigl(\tfrac12V^2\Bigr)=\frac{\eta}{h}\Bigl[\varepsilon\ C_k\ V\ (k_0^{\ast}-k)-C_d\ V^3\Bigr],
@@ -239,26 +247,51 @@ drag dissipates it, with Carnot efficiency $\varepsilon=(T_s-T_o)/T_o$ between t
 V_p^2=\frac{C_k}{C_d}\ \varepsilon\ (k_0^{\ast}-k).
 ```
 
-This gives the relaxation law $dV/dt=a\ (V_p^2-V^2)$ with $a=\eta C_d/h$, whose exact solution is
-$V(t)=V_p\tanh\bigl(\mathrm{artanh}(V_0/V_p)+a\ V_p\ t\bigr)$ for $V_0<V_p$. The animation's law
+This gives the relaxation law $dV/dt=a\ (V_p^2-V^2)$ with $a=\eta C_d/h$, whose exact solution for constant $V_p$ is
+$V(t)=V_p\tanh\bigl(\mathrm{artanh}(V_0/V_p)+a\ V_p\ t\bigr)$ for $V_0<V_p$ (used as a verification target, see §7). The animation's law
 $dI/dx=(I^{\ast}-I)/\lambda$ has the same *form* (relaxation toward an SST-controlled target) but its target is a tuned
-function of SST, not a computed $V_p$.
+function of SST, not a computed $V_p$. A practical difference: the energy balance **saturates** near $V_p$, the repo law has no ceiling.
 
-**Gradient-wind balance.** A steady axisymmetric vortex satisfies $V^2/r+fV=\dfrac1\rho\ \partial_rp$; the central pressure drop
+**Viability factor.** The reduced model does not resolve what makes a warm ocean unfavourable (shear, dry air, weak convection). An empirical logistic
+factor around a threshold $T_v$ (27 °C, close to Gray's 26.5 °C) stands for it:
+
+```math
+V_p^{\mathrm{eff}}=V_p\ \Bigl[1+\exp\Bigl(-\frac{T_s-T_v}{w}\Bigr)\Bigr]^{-1},\qquad w=0.4\ \mathrm{K}.
+```
+
+**Sea-surface cooling feedback (cold wake).** The sea temperature seen by the storm is the background SST minus a cooling $\Delta T$ that relaxes
+toward an equilibrium growing with the wind and shrinking with the translation speed $U$:
+
+```math
+T_s(t)=T_{bg}\bigl(x(t)\bigr)-\Delta T(t),\qquad
+\frac{d\Delta T}{dt}=\frac{\Delta T_{eq}-\Delta T}{\tau},\qquad
+\Delta T_{eq}=\min\Bigl(\Delta T_{max},\ c_0\Bigl(\frac{V}{V_{ref}}\Bigr)^{2}\frac{U_{ref}}{\max(U,2)}\Bigr).
+```
+
+Defaults: $\tau=12$ h, $c_0=1.5$ K, $V_{ref}=60$ m/s, $U_{ref}=5$ m/s, $\Delta T_{max}=6$ K. The track of length $L=2000$ km is travelled at speed $U$ (6 m/s by default,
+3.9 days), and the tank's SST profile $T_{bg}(x)$ is mapped onto it.
+
+**Integration and events.** The pair $(V,\Delta T)$ is integrated with **RK4** on 1600 steps (vectorised over an ensemble of parameter sets).
+Events reported by the dashboard: warm-zone entry and exit (crossing of $[z_0,z_1]$), genesis ($V\ge17.5$ m/s, tropical-storm threshold), peak, and
+**rapid intensification** (RI) in the NHC sense, $dV/dt\ge15.4$ m/s per day (+30 kt in 24 h), counted after genesis.
+
+**Calibration status.** $\eta=0.25$, $C_k/C_d=0.5$ and $T_v$ are chosen so that the potential intensity at 30 °C is $V_p\approx67$ m/s (the test-suite checks the 60 to 110 m/s
+range of the literature); they are **not** fitted to observations. Conclusions from this model are qualitative until validated on best-track data.
+
+**Gradient-wind balance (not implemented).** A steady axisymmetric vortex satisfies $V^2/r+fV=\dfrac1\rho\ \partial_rp$; the central pressure drop
 underlies the (inverse-barometer) idea that the sea surface bulges up where pressure is low. In reality the response to a
 fast cyclone is a storm surge governed by the shallow-water equations with wind stress; here the depression of §2 is a
 **visual device** and is not a hydrodynamic solution.
 
-**Axisymmetric shallow water** (rotating, $f$-plane), the natural next step for the ocean layer:
+**Axisymmetric shallow water (not implemented)** (rotating, $f$-plane), the natural next step for the ocean layer:
 ```math
 \partial_th+\tfrac1r\partial_r(rhu)=S,\quad
 \partial_tu=\tfrac{v^2}{r}+fv-g\ \partial_rh,\quad
 \partial_tv=-u\bigl(\partial_rv+\tfrac vr+f\bigr).
 ```
 
-**Hook for a physical solver.** `Timeline(itab=...)` accepts a table of 1601 normalised intensities along the track.
-Any intensity model (for example, a time-dependent solver run along a prescribed track) can drive the water, spiral and tracers
-instead of the built-in SST law.
+**Hook for a physical solver.** `Timeline(itab=...)` accepts a table of 1601 normalised intensities along the track, and `Timeline(zone=(z0, z1))` the warm zone.
+`physics.intensity_table(...)` provides such a table (wind divided by a visual scale `v_norm`, 70 m/s by default); `Viewer.set_model(itab=..., zone=..., gain=...)` applies it.
 
 ## 6. Numerics, determinism and cost
 
@@ -270,6 +303,39 @@ instead of the built-in SST law.
   shader parametrisation, GPU rendering determinism, compositing, notebook API (`pytest`, run on every push by CI).
 * **Cost:** the surface fragment shader evaluates $H$ three times per pixel and a $3\times3$ Worley search; on CPU (Mesa llvmpipe)
   a frame takes about 0.5 s at 800×450 and 0.8 s at 1280×720 on 2 CPU cores (measured, including the timeline replay). On a GPU with EGL the same code runs unchanged.
+
+## 7. Verification, ensembles and scaling
+
+**Verification** (does the code solve its equations?), all in the test-suite:
+
+| Check | Result |
+|---|---|
+| `model.py` against the animation's own `Timeline` (table, SST, state at 7 instants) | identical (float32 table; state to 1e-13) |
+| Ensemble run against member-by-member scalar runs | identical to 1e-13 |
+| RK4 against the exact tanh solution (constant $V_p$) | observed order 4.3 (formal 4) |
+| Euler (repo law), peak intensity vs a 16× finer run | observed order 1.03 (formal 1) |
+| RK4 on the coupled problem (whole $V(t)$ curve) | observed order 2.6: the right-hand side is not smooth (`min`, `max`, logistic), so it stays below 4 |
+| Saturation pressure and Clausius–Clapeyron rate, $V_p(30\ ^\circ\mathrm{C})$ in the literature range | pass |
+| Parallel sweep and parallel rendering against serial | identical results; frames pixel-identical |
+
+**Convergence study** (`hpc.convergence`, `hpc.convergence_physics`): the error $e(h)\approx C\ h^{p}$; the order $p$ is the least-squares slope of $\log e$ against $\log h$ over nested step sizes.
+
+**Ensembles.** The relaxation along the track is sequential (each step uses the previous one) but independent between ensemble members. The code loops over the track and
+vectorises over members (NumPy), then spreads chunks of members over processes (`multiprocessing`, `spawn`). A parameter sweep over a grid is `hpc.sweep` (repo law) or
+`hpc.sweep_physics` (energy balance); `intensity_stats` keeps only peak, its position and final value, in $O(\text{members})$ memory.
+
+**Measured on 2 vCPU** (`tools/benchmark.py`, results in `docs/benchmarks.json`, chunks of 10 000 members for every worker count):
+
+| Experiment | 1 process | 2 processes | Speed-up | Efficiency |
+|---|---|---|---|---|
+| Sweep, 200 000 members | 3.81 s | 2.21 s | 1.72 | 86 % |
+| Rendering, 8 frames at 480×270 | 3.08 s | 2.59 s | 1.19 | 59 % |
+
+Fitted serial fraction of the sweep (Amdahl): about 16 %, mostly process start-up (`spawn`) and import; it shrinks as the problem grows. Rendering gains little because Mesa llvmpipe
+already uses both cores for one frame: workers set `LP_NUM_THREADS=1` to avoid oversubscription, and the benefit should grow with the number of cores (untested beyond 2).
+Vectorisation removes a factor of about 1 500 against a Python loop over members (extrapolated from a 40-member sample).
+
+![HPC benchmarks](hpc_benchmarks.png)
 
 ## References
 

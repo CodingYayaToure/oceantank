@@ -75,7 +75,7 @@ class Timeline:
 
     def __init__(self, tank: Tank | None = None, gain: float = 1.35, seed: int = 12345, rng: str = "mulberry32",
                  n_spray: int = 3200, n_bubbles: int = 900, n_steam: int = 1700, n_tracers: int = 2600,
-                 itab: np.ndarray | None = None, start_ready: bool = True):
+                 itab: np.ndarray | None = None, start_ready: bool = True, zone: tuple = (ZX0, ZX1)):
         self.tank = tank or Tank()
         L, W = self.tank.length, self.tank.width
         self.L, self.W = L, W
@@ -84,7 +84,8 @@ class Timeline:
         self.t = 0.0
         self.clock = 0.0
         self.rot = 0.0
-        self.state = OceanState()
+        self.zone = (float(zone[0]), float(zone[1]))      # warm zone [z0, z1]: shader tint and vortex expansion
+        self.state = OceanState(uZ=self.zone)
         self.rng = make_rng(seed, rng)
         self.itab = self._build_itab() if itab is None else np.asarray(itab, np.float32)
         # particle seeds, in the animation's order: spray, bubbles, steam, then tracers
@@ -116,6 +117,9 @@ class Timeline:
         return 27.6 + 3.0 * warm - 3.2 * cold - 1.1 * ss(ZX0 + 1.5, ZX1 + .5, x) * warm
 
     def _build_itab(self) -> np.ndarray:
+        if self.zone != (ZX0, ZX1):                       # custom warm zone: same law through the vectorised model
+            from .model import Params, intensity_table
+            return intensity_table(Params(x0=self.X0, x1=self.X1, z0=self.zone[0], z1=self.zone[1])).astype(np.float32)
         tab = np.zeros(NI + 1, np.float32)
         I, dx = .04, (self.X1 - self.X0) / NI
         for k in range(NI + 1):
@@ -174,7 +178,7 @@ class Timeline:
         I = In * 1.18 * self.gain
         cx = self.X0 + (self.X1 - self.X0) * u
         cz = .75 * math.sin(u * math.pi * 3)
-        R = R0 * (1.1 - .28 * min(In / .95, 1.1) + .45 * ss(ZX1 - 1.5, ZX1 + 6, cx))
+        R = R0 * (1.1 - .28 * min(In / .95, 1.1) + .45 * ss(self.zone[1] - 1.5, self.zone[1] + 6, cx))
         self.rot += dt * 2.7 * (.45 + .75 * I)
         s = self.state
         s.uT, s.uC, s.uI, s.uRot, s.uR = self.clock, (cx, cz), I, self.rot, R

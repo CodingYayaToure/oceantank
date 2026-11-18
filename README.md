@@ -113,17 +113,17 @@ The cyclone crosses the tank in **32 s** (x from -11.2 to +11.2, 0.7 tank units/
 Everything below is what the code actually computes. Full derivations, parameter values and code locations are in
 **[`docs/MODELS.md`](docs/MODELS.md)**.
 
-**1. Sea-surface temperature (SST).** A smooth, imposed profile along the track: a warm patch on $[-3,\,5.5]$ and cold water at the end,
-built from cubic smoothsteps $\operatorname{ss}$ (peak 30.5 °C, minimum 24.4 °C).
+**1. Sea-surface temperature (SST).** A smooth, imposed profile along the track: a warm patch on $[-3,\ 5.5]$ and cold water at the end,
+built from cubic smoothsteps $\mathrm{ss}$ (peak 30.5 °C, minimum 24.4 °C).
 
 **2. Intensity law.** The cyclone intensity $I$ relaxes along its track towards a target set by the SST, with the classical
 26.5 °C genesis threshold (Gray, 1968):
 
-$$
-I^{\ast}(x)=\Bigl[\max\!\Bigl(0,\tfrac{\mathrm{SST}(x)-26.5}{4}\Bigr)\Bigr]^{0.9},\qquad
+```math
+I^{\ast}(x)=\Bigl[\max\Bigl(0,\tfrac{\mathrm{SST}(x)-26.5}{4}\Bigr)\Bigr]^{0.9},\qquad
 \frac{dI}{dx}=\frac{I^{\ast}-I}{\lambda},\quad
-\lambda\in\{1.5\ \text{(growth)},\ 1.4\ \text{(cold decay)},\ 5.2\ \text{(warm decay)}\}
-$$
+\lambda\in\lbrace 1.5\ \text{(growth)},\ 1.4\ \text{(cold decay)},\ 5.2\ \text{(warm decay)} \rbrace
+```
 
 integrated with explicit Euler on 1600 steps ($\Delta x/\lambda\le0.01$; refining 10× changes the table by at most $4.5\times10^{-3}$).
 The *form* (relaxation towards an SST-controlled target) mirrors potential-intensity theory (Emanuel, 1986), but the target is tuned,
@@ -131,20 +131,20 @@ not a computed potential intensity.
 
 **3. Water surface.** One analytic height field $H(x,z,t)$ displaces a 264 000-triangle mesh:
 
-$$
-H=h_\text{amb}\,(1+\ldots)+I\Bigl[-1.75\,e^{-(r/0.6R)^2}+0.26\,e^{-((r-1.1R)/0.5R)^2}+0.2\,e^{-(r/3.2R)^2}\Bigr]
-+0.2\,I\sin\!\bigl(2(\theta+\phi)-5\ln\tfrac rR\bigr)+\text{rings}
-$$
+```math
+H=h_\text{amb}\ (1+\ldots)+I\Bigl[-1.75\ e^{-(r/0.6R)^2}+0.26\ e^{-((r-1.1R)/0.5R)^2}+0.2\ e^{-(r/3.2R)^2}\Bigr]
++0.2\ I\sin\bigl(2(\theta+\phi)-5\ln\tfrac rR\bigr)+\text{rings}
+```
 
 (eye depression, eyewall ring, two-arm logarithmic spiral, radiating gravity-wave rings reflected on the tank walls by the **method of images**).
-Normals come from finite differences of $H$; shading uses a Fresnel term $(1-\mathbf n\!\cdot\!\mathbf v)^3$, Blinn-Phong specular $(\mathbf n\!\cdot\!\mathbf h)^{150}$,
+Normals come from finite differences of $H$; shading uses a Fresnel term $(1-\mathbf n\cdot\mathbf v)^3$, Blinn-Phong specular $(\mathbf n\cdot\mathbf h)^{150}$,
 Worley (cellular) caustics and fractal-noise foam.
 
 **4. Wind field and tracers.** 2600 surface tracers are advected by a modified Rankine vortex with frictional inflow ($\arctan0.22\approx12.4^\circ$):
 
-$$
+```math
 V(r)=V_{\max}I\begin{cases}r/R_0 & r<R_0\\ (R_0/r)^{0.85}e^{-(r-R_0)/11} & r\ge R_0\end{cases}
-$$
+```
 
 **5. Camera and blending.** Standard perspective matrix, $C=\alpha_sC_s+(1-\alpha_s)C_d$ (normal) or $C=\alpha_sC_s+C_d$ (additive), 4× MSAA.
 

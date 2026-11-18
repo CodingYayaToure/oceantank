@@ -142,8 +142,16 @@ Worley (cellular) caustics and fractal-noise foam.
 
 **4. Wind field and tracers.** 2600 surface tracers are advected by a modified Rankine vortex with frictional inflow ($\arctan0.22\approx12.4^\circ$):
 
+Inner core ($r \lt R_0$, solid-body rotation):
+
 ```math
-V(r)=V_{\max}I\begin{cases}r/R_0 & r<R_0\\ (R_0/r)^{0.85}e^{-(r-R_0)/11} & r\ge R_0\end{cases}
+V(r)=V_{\max}\ I\ \frac{r}{R_0}
+```
+
+Outer region ($r\ge R_0$, decaying wind):
+
+```math
+V(r)=V_{\max}\ I\ \Bigl(\frac{R_0}{r}\Bigr)^{0.85}e^{-(r-R_0)/11}
 ```
 
 **5. Camera and blending.** Standard perspective matrix, $C=\alpha_sC_s+(1-\alpha_s)C_d$ (normal) or $C=\alpha_sC_s+C_d$ (additive), 4× MSAA.

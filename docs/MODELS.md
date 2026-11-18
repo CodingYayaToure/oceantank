@@ -22,16 +22,13 @@ relates to the physics of tropical cyclones.
 ## 1. Rendering mathematics
 
 **Camera.** A vertical field of view $\varphi = 32^\circ$, aspect ratio $a$, near/far planes $n, f$. With
-$F = 1/\tan(\varphi/2)$ the projection matrix is
+$F = 1/\tan(\varphi/2)$ the non-zero entries of the projection matrix are
 
 ```math
-P=\begin{pmatrix}
-F/a & 0 & 0 & 0\\
-0 & F & 0 & 0\\
-0 & 0 & \dfrac{f+n}{n-f} & \dfrac{2fn}{n-f}\\
-0 & 0 & -1 & 0
-\end{pmatrix}
+P_{11}=\frac{F}{a},\quad P_{22}=F,\quad P_{33}=\frac{f+n}{n-f},\quad P_{34}=\frac{2fn}{n-f},\quad P_{43}=-1
 ```
+
+and all other entries of $P$ are zero (a $4\times4$ matrix acting on homogeneous coordinates).
 
 The orbit camera sits at distance $d=\left(17/h_f+3.6\right)\ \text{zoom}$ with $h_f=\tan(\varphi/2)\ a$, azimuth
 $\alpha$ and elevation $\epsilon$:
@@ -147,14 +144,16 @@ the 4 K normalisation, the exponent 0.9 and the three length scales are tuned co
 ```math
 I^{\ast}(x)=\Bigl[\max\Bigl(0,\tfrac{\text{SST}(x)-26.5}{4}\Bigr)\Bigr]^{0.9},
 \qquad
-\frac{dI}{dx}=\frac{I^{\ast}-I}{\lambda},
-\quad
-\lambda=\begin{cases}
-1.5 & I^{\ast}>I \ \ \text{(intensification)}\\
-1.4 & I^{\ast}\le I,\ \text{SST}<26.5\ \ \text{(decay over cold water)}\\
-5.2 & I^{\ast}\le I,\ \text{SST}\ge26.5\ \ \text{(slow decay over warm water)}
-\end{cases}
+\frac{dI}{dx}=\frac{I^{\ast}-I}{\lambda}
 ```
+
+with the relaxation length $\lambda$ chosen by case:
+
+| Case | Condition | $\lambda$ |
+|---|---|---|
+| intensification | $I^{\ast}>I$ | 1.5 |
+| decay over cold water | $I^{\ast}\le I$ and SST below 26.5 °C | 1.4 |
+| slow decay over warm water | $I^{\ast}\le I$ and SST at or above 26.5 °C | 5.2 |
 
 Integrated along the track with explicit Euler on $N_I=1600$ steps of size $\Delta x=22.4/1600=0.014$, starting from
 $I_0=0.04$. Since $\Delta x/\lambda\le0.01\ll1$ the scheme is stable, and **refining to 16 000 steps changes the table by at most
@@ -187,12 +186,16 @@ D=\mathrm{ss}(8.0,\ 10.6,\ c_x)\ \ (\text{dissipation / eye tearing}).
 
 2600 surface tracers are advected by an analytic **modified Rankine vortex** of radius $R_0$ and peak $V_\text{max}=6$:
 
+Solid-body core, $r \lt R_0$:
+
 ```math
-V(r)=V_\text{max}\ I\cdot
-\begin{cases}
-r/R_0 & r<R_0\quad(\text{solid-body core})\\
-(R_0/r)^{0.85}\ e^{-(r-R_0)/11} & r\ge R_0\quad(\text{decaying outer wind})
-\end{cases}
+V(r)=V_\text{max}\ I\ \frac{r}{R_0}
+```
+
+Decaying outer wind, $r\ge R_0$:
+
+```math
+V(r)=V_\text{max}\ I\ \Bigl(\frac{R_0}{r}\Bigr)^{0.85}e^{-(r-R_0)/11}
 ```
 
 The velocity is the cyclonic tangential flow plus an inward (frictional) radial component of 22 % of the tangential speed (inflow angle

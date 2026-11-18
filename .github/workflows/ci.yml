@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: OpenGL / EGL libraries (Mesa software rendering)
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libgles2 libgl1-mesa-dri
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1 libgles2 libgl1-mesa-dri
       - name: Install
         run: pip install -e ".[test]"
       - name: Test

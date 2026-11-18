@@ -12,7 +12,7 @@ done with headless OpenGL ([moderngl](https://github.com/moderngl/moderngl) + EG
 ## Quick start
 
 Requirements: Python >= 3.10 and an OpenGL 3.3 driver (already present on a desktop PC; on a headless server:
-`sudo apt install libegl1 libgl1 libgles2 libgl1-mesa-dri`, Mesa then renders in software).
+`sudo apt install libegl1 libegl-mesa0 libgl1 libgles2 libgl1-mesa-dri`, Mesa then renders in software).
 
 ```bash
 python3 -m venv venv && source venv/bin/activate         # Windows: venv\Scripts\activate

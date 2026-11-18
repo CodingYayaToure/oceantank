@@ -1,15 +1,55 @@
 # oceantank
 
 [![CI](https://github.com/CodingYayaToure/oceantank/actions/workflows/ci.yml/badge.svg)](https://github.com/CodingYayaToure/oceantank/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Rendering](https://img.shields.io/badge/rendering-headless%20OpenGL%203.3-informational)
 
-Build a **rectangular glass tank**, **fill it with ocean water**, and render it in Python exactly as the
-HTML/three.js animation *"Cyclone: from birth to collapse"* does. No browser, no display and no GPU required.
+**A rectangular glass tank, filled with ocean water, crossed by a tropical cyclone, rendered in pure Python.**
+Deterministic, headless (no browser, no display, no GPU required) and cross-validated against the original three.js animation.
+
+<p align="center">
+  <img src="docs/cycle.gif" width="720" alt="One full 32 s cycle: a cyclone forms, intensifies over a warm zone, then weakens over cold water inside a glass tank">
+  <br><em>One full 32 s cycle: formation, rapid intensification over the warm zone (orange), weakening over cold water.</em>
+</p>
+
+## Contents
+
+[Overview](#overview) · [Quick start](#quick-start) · [The cycle](#the-cycle) · [Models](#mathematical-and-physical-models) · [Validation](#validation-against-the-html-animation) · [Notebook](#jupyter--google-colab) · [Limitations](#limitations) · [Development](#development) · [References](#references)
+
+## Overview
+
+`oceantank` reproduces, frame for frame, the WebGL animation *"Cyclone: from birth to collapse"*:
+
+- the **GLSL shaders are reused verbatim** (extracted from the HTML by `tools/extract_shaders.js`);
+- geometry, camera matrices, draw order and blending follow **three.js r128**;
+- rendering uses headless OpenGL ([moderngl](https://github.com/moderngl/moderngl) + EGL / Mesa);
+- all random numbers come from **Mulberry32**, the same stream as in the browser, so a frame is reproducible bit for bit on a given GPU/driver.
 
 ![Glass, then water, then particles](docs/build_steps.png)
 
-How it works: the animation's **GLSL shaders are reused verbatim** (extracted from the HTML by
-`tools/extract_shaders.js`). Geometry, camera matrices, draw order and blending follow three.js r128, and rendering is
-done with headless OpenGL ([moderngl](https://github.com/moderngl/moderngl) + EGL/Mesa).
+| Layer | What it is | Nature |
+|---|---|---|
+| Camera, rasterisation, blending | perspective projection, 4× MSAA, ordered transparency | exact three.js conventions |
+| Water surface | analytic height field: ambient sea, eye depression, spiral bands, radiating rings with wall reflections, wake | hand-built, analytic |
+| Cyclone intensity | sea-surface-temperature profile → intensity by relaxation along the track | phenomenological, tuned |
+| Surface tracers | modified Rankine vortex with inflow | analytic |
+
+> **What this is not.** `oceantank` is a model-scale *visualisation*, not a numerical weather prediction code: it does not integrate
+> the primitive equations, and its units are tank units, not metres. The physical models it imitates qualitatively are documented,
+> with their status (implemented or not), in [`docs/MODELS.md`](docs/MODELS.md).
+
+### Architecture
+
+```mermaid
+flowchart LR
+    T["Timeline<br/>cyclone state, particles"] -->|"uniforms: uT, uC, uI, uR, uRot, uBurst, uDis"| S["Scene<br/>layers, draw order"]
+    G["Tank, Camera<br/>geometry, matrices"] --> S
+    H["GLSL shaders<br/>extracted verbatim from the HTML"] --> S
+    S --> R["GLRenderer<br/>moderngl + EGL, MSAA 4x"]
+    R --> C["compose.over<br/>page background"]
+    C --> O["PNG / GIF / frames"]
+```
 
 ## Quick start
 
@@ -55,7 +95,7 @@ If rendering fails with `cannot open display` or `GLSL Compiler failed`, force M
 
 ## The cycle
 
-The cyclone crosses the tank in **32 s** (x from -11.2 to +11.2): it forms on the left, intensifies over the warm zone
+The cyclone crosses the tank in **32 s** (x from -11.2 to +11.2, 0.7 tank units/s): it forms on the left, intensifies over the warm zone
 (x from -3 to 5.5), then weakens and collapses in cold water.
 
 ![Five instants of one cycle](docs/cycle_overview.png)
@@ -68,18 +108,54 @@ The cyclone crosses the tank in **32 s** (x from -11.2 to +11.2): it forms on th
 | `oceantank frames frames/ --size 1920x1080` | PNG sequence (then `ffmpeg -framerate 12 -i frames/f%04d.png -pix_fmt yuv420p out.mp4`) |
 | `--az 0.5 --el 0.4` | camera angle (radians) |
 
-## Jupyter / Google Colab
+## Mathematical and physical models
 
-[`examples/oceantank_colab.ipynb`](examples/oceantank_colab.ipynb): install, single image, step-by-step build, sliders (time and
-camera angle) and a full-cycle GIF. In Colab, run the first cell: it installs the OpenGL libraries and the package
-(upload the wheel, or it installs from this repository). No GPU needed (`LIBGL_ALWAYS_SOFTWARE=1`).
-Verified: complete notebook execution with nbconvert on headless Linux. **Not verified**: Colab itself and the
-interactive sliders (they need a browser front end).
+Everything below is what the code actually computes. Full derivations, parameter values and code locations are in
+**[`docs/MODELS.md`](docs/MODELS.md)**.
 
-## How close is it to the HTML animation? (measured)
+**1. Sea-surface temperature (SST).** A smooth, imposed profile along the track: a warm patch on $[-3,\,5.5]$ and cold water at the end,
+built from cubic smoothsteps $\operatorname{ss}$ (peak 30.5 °C, minimum 24.4 °C).
 
-`tools/compare_with_html.py` renders the same frame in Chromium (three.js r128, SwiftShader) and in Python, with the
-same random seeds (Mulberry32 injected into the page), the same state, camera and resolution (960x540).
+**2. Intensity law.** The cyclone intensity $I$ relaxes along its track towards a target set by the SST, with the classical
+26.5 °C genesis threshold (Gray, 1968):
+
+$$
+I^{\ast}(x)=\Bigl[\max\!\Bigl(0,\tfrac{\mathrm{SST}(x)-26.5}{4}\Bigr)\Bigr]^{0.9},\qquad
+\frac{dI}{dx}=\frac{I^{\ast}-I}{\lambda},\quad
+\lambda\in\{1.5\ \text{(growth)},\ 1.4\ \text{(cold decay)},\ 5.2\ \text{(warm decay)}\}
+$$
+
+integrated with explicit Euler on 1600 steps ($\Delta x/\lambda\le0.01$; refining 10× changes the table by at most $4.5\times10^{-3}$).
+The *form* (relaxation towards an SST-controlled target) mirrors potential-intensity theory (Emanuel, 1986), but the target is tuned,
+not a computed potential intensity.
+
+**3. Water surface.** One analytic height field $H(x,z,t)$ displaces a 264 000-triangle mesh:
+
+$$
+H=h_\text{amb}\,(1+\ldots)+I\Bigl[-1.75\,e^{-(r/0.6R)^2}+0.26\,e^{-((r-1.1R)/0.5R)^2}+0.2\,e^{-(r/3.2R)^2}\Bigr]
++0.2\,I\sin\!\bigl(2(\theta+\phi)-5\ln\tfrac rR\bigr)+\text{rings}
+$$
+
+(eye depression, eyewall ring, two-arm logarithmic spiral, radiating gravity-wave rings reflected on the tank walls by the **method of images**).
+Normals come from finite differences of $H$; shading uses a Fresnel term $(1-\mathbf n\!\cdot\!\mathbf v)^3$, Blinn-Phong specular $(\mathbf n\!\cdot\!\mathbf h)^{150}$,
+Worley (cellular) caustics and fractal-noise foam.
+
+**4. Wind field and tracers.** 2600 surface tracers are advected by a modified Rankine vortex with frictional inflow ($\arctan0.22\approx12.4^\circ$):
+
+$$
+V(r)=V_{\max}I\begin{cases}r/R_0 & r<R_0\\ (R_0/r)^{0.85}e^{-(r-R_0)/11} & r\ge R_0\end{cases}
+$$
+
+**5. Camera and blending.** Standard perspective matrix, $C=\alpha_sC_s+(1-\alpha_s)C_d$ (normal) or $C=\alpha_sC_s+C_d$ (additive), 4× MSAA.
+
+**Reference models and where this package stops.** [`docs/MODELS.md`](docs/MODELS.md#5-physical-reference-models-context-not-implemented-in-this-package)
+lists the physical reference formulations (Bolton saturation, Emanuel energy balance and potential intensity, gradient-wind balance, axisymmetric shallow water)
+and states that they are **not** solved here. `Timeline(itab=...)` is the hook to drive the water, spiral and tracers from any physical intensity solver.
+
+## Validation against the HTML animation
+
+`tools/compare_with_html.py` renders the same frame in Chromium (three.js r128, SwiftShader) and in Python, with the same random seeds (Mulberry32 injected into the page),
+the same state, camera and resolution (960x540).
 
 ![HTML vs Python](docs/comparison_html_python.png)
 
@@ -101,14 +177,24 @@ same random seeds (Mulberry32 injected into the page), the same state, camera an
 - **Particles**: each layer agrees at 34 - 41 dB (same seeds, positions and draw order); 1 px points and line
   segments are rasterised slightly differently by the two engines.
 
+**Performance** (software rendering, 2 CPU cores, Mesa llvmpipe): about 0.5 s per frame at 800x450 and 0.8 s at 1280x720.
+A GPU with EGL is used automatically when available.
+
+## Jupyter / Google Colab
+
+[`examples/oceantank_colab.ipynb`](examples/oceantank_colab.ipynb): install, single image, step-by-step build, sliders (time and
+camera angle) and a full-cycle GIF. In Colab, run the first cell: it installs the OpenGL libraries and the package
+(upload the wheel, or it installs from this repository). No GPU needed (`LIBGL_ALWAYS_SOFTWARE=1`).
+Verified: complete notebook execution with nbconvert on headless Linux. **Not verified**: Colab itself and the
+interactive sliders (they need a browser front end).
+
 ## Limitations
 
+- **Visualisation, not prediction**: the cyclone follows a tuned SST-to-intensity law, not the equations of motion (see [`docs/MODELS.md`](docs/MODELS.md)). Lengths are in tank units.
 - No frustum culling (three.js may skip an off-screen flank for some camera angles).
 - The HUD, labels and CSS background are not part of the WebGL canvas; `over()` reproduces the page's radial-gradient background.
-- `Timeline` uses the animation's simplified intensity model; to drive it from another source (for example a physical
-  solver) pass `itab=` (a table of 1601 values).
-- Software rendering (llvmpipe) takes about 2 s per 960x540 frame; a GPU with EGL is used automatically when available.
-- Tested on Linux (Ubuntu, Mesa; Python 3.13 and 3.14). Windows and macOS are untested (moderngl supports them in principle).
+- `Timeline` uses the animation's simplified intensity model; to drive it from another source pass `itab=` (a table of 1601 values).
+- Tested on Linux (Ubuntu, Mesa; Python 3.13 and 3.14; CI on 3.10, 3.12, 3.13). Windows and macOS are untested (moderngl supports them in principle).
 - The original HTML animation (French UI) is not included in this repository; the comparison tool needs a path to it.
 
 ## Development
@@ -124,6 +210,15 @@ python tools/make_notebook.py                                                # r
 Project layout: `src/oceantank/` (`spec` tank dimensions, `geometry`, `camera`, `timeline` cyclone state and particles,
 `scene` layers and draw order, `render_gl` OpenGL renderer, `shaders` GLSL loading, `compose` background, `api` notebook
 `Viewer`, `cli`), `tests/`, `tools/`, `examples/`, `docs/`.
+
+## References
+
+1. Gray, W. M. (1968). Global view of the origin of tropical disturbances and storms. *Mon. Wea. Rev.* **96**, 669-700.
+2. Emanuel, K. A. (1986). An air-sea interaction theory for tropical cyclones. Part I. *J. Atmos. Sci.* **43**, 585-605.
+3. Rotunno, R. & Emanuel, K. A. (1987). An air-sea interaction theory for tropical cyclones. Part II. *J. Atmos. Sci.* **44**, 542-561.
+4. Bolton, D. (1980). The computation of equivalent potential temperature. *Mon. Wea. Rev.* **108**, 1046-1053.
+5. Worley, S. (1996). A cellular texture basis function. *Proc. SIGGRAPH '96*, 291-294.
+6. Schlick, C. (1994). An inexpensive BRDF model for physically-based rendering. *Computer Graphics Forum* **13**(3), 233-246.
 
 ## License
 

@@ -6,27 +6,19 @@ nb = nbf.v4.new_notebook()
 nb.cells = [
 M("# oceantank: glass tank + ocean\n"
   "Renders the \"Cyclone: from birth to collapse\" animation in Python, in Jupyter or Google Colab.\n\n"
-  "**Colab**: no GPU needed (Mesa software rendering)."),
+  "**Colab**: no GPU needed (Mesa software rendering). Run the cells from top to bottom; the first cell installs everything from GitHub (about 1 minute)."),
 M("## 1. Install (once per session)"),
-C('''import glob, importlib.util, os, subprocess, sys
+C('''import importlib.util, os, subprocess, sys
 
 IN_COLAB = "google.colab" in sys.modules
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")      # Mesa software rendering: works without a display or GPU
 
 if IN_COLAB:                                             # OpenGL/EGL libraries of the Colab machine
-    subprocess.run("apt-get -qq update && apt-get -qq install -y libegl1 libgl1 libgles2 libgl1-mesa-dri",
+    subprocess.run("apt-get -qq update && apt-get -qq install -y libegl1 libegl-mesa0 libgl1 libgles2 libgl1-mesa-dri",
                    shell=True, check=False)
 
-if importlib.util.find_spec("oceantank") is None:
-    whl = glob.glob("oceantank-*.whl")
-    if not whl and IN_COLAB:
-        from google.colab import files
-        files.upload()                                   # pick the oceantank-*.whl file
-        whl = glob.glob("oceantank-*.whl")
-    if whl:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *whl])
-    else:                                                # no wheel found: install from the repository
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "git+https://github.com/CodingYayaToure/oceantank.git"])
+if importlib.util.find_spec("oceantank") is None:        # install from the public repository (no file upload needed)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "git+https://github.com/CodingYayaToure/oceantank.git"])
 print("oceantank ready")'''),
 M("## 2. One image\nThe cycle lasts **32 s**: 0 = formation, ~12 = warm zone, ~25 = leaving towards cold water, 32 = end."),
 C('''from oceantank import Viewer

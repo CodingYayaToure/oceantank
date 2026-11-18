@@ -4,6 +4,7 @@
 ![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Rendering](https://img.shields.io/badge/rendering-headless%20OpenGL%203.3-informational)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CodingYayaToure/oceantank/blob/main/examples/oceantank_colab.ipynb)
 
 **A rectangular glass tank, filled with ocean water, crossed by a tropical cyclone, rendered in pure Python.**
 Deterministic, headless (no browser, no display, no GPU required) and cross-validated against the original three.js animation.
@@ -191,8 +192,7 @@ A GPU with EGL is used automatically when available.
 ## Jupyter / Google Colab
 
 [`examples/oceantank_colab.ipynb`](examples/oceantank_colab.ipynb): install, single image, step-by-step build, sliders (time and
-camera angle) and a full-cycle GIF. In Colab, run the first cell: it installs the OpenGL libraries and the package
-(upload the wheel, or it installs from this repository). No GPU needed (`LIBGL_ALWAYS_SOFTWARE=1`).
+camera angle) and a full-cycle GIF. In Colab, click the *Open in Colab* badge above and run the cells from top to bottom: the first cell installs the OpenGL libraries and the package from this repository (no file upload, about 1 minute). No GPU needed (`LIBGL_ALWAYS_SOFTWARE=1`).
 Verified: complete notebook execution with nbconvert on headless Linux. **Not verified**: Colab itself and the
 interactive sliders (they need a browser front end).
 

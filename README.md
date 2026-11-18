@@ -1,5 +1,7 @@
 # oceantank
 
+[![CI](https://github.com/CodingYayaToure/oceantank/actions/workflows/ci.yml/badge.svg)](https://github.com/CodingYayaToure/oceantank/actions/workflows/ci.yml)
+
 Build a **rectangular glass tank**, **fill it with ocean water**, and render it in Python exactly as the
 HTML/three.js animation *"Cyclone: from birth to collapse"* does. No browser, no display and no GPU required.
 

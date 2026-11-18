@@ -26,7 +26,7 @@ if importlib.util.find_spec("oceantank") is None:
     if whl:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *whl])
     else:                                                # no wheel found: install from the repository
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "git+https://github.com/TON_USERNAME/oceantank.git"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "git+https://github.com/CodingYayaToure/oceantank.git"])
 print("oceantank ready")'''),
 M("## 2. One image\nThe cycle lasts **32 s**: 0 = formation, ~12 = warm zone, ~25 = leaving towards cold water, 32 = end."),
 C('''from oceantank import Viewer

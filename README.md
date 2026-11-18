@@ -16,7 +16,7 @@ Requirements: Python >= 3.10 and an OpenGL 3.3 driver (already present on a desk
 
 ```bash
 python3 -m venv venv && source venv/bin/activate         # Windows: venv\Scripts\activate
-pip install git+https://github.com/TON_USERNAME/oceantank.git    # or, from a clone: pip install -e .
+pip install git+https://github.com/CodingYayaToure/oceantank.git    # or, from a clone: pip install -e .
 
 oceantank still tank.png          # one image
 oceantank gif cycle.gif           # one full 32 s cycle: formation -> warm zone -> collapse
